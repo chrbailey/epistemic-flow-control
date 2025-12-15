@@ -24,6 +24,7 @@ import os
 import time
 import asyncio
 import logging
+import threading
 from typing import Optional, Dict, Any
 
 from .base import (
@@ -145,23 +146,28 @@ class AnthropicProvider(BaseLLMProvider):
         # Lazy-load the client (avoids import errors if anthropic not installed)
         self._client = None
         self._async_client = None
+        self._client_lock = threading.Lock()  # Thread-safe initialization
 
     def _get_async_client(self):
-        """Lazy-load the async Anthropic client."""
+        """Lazy-load the async Anthropic client (thread-safe)."""
+        # Double-checked locking pattern for thread safety
         if self._async_client is None:
-            try:
-                from anthropic import AsyncAnthropic
-            except ImportError:
-                raise ImportError(
-                    "anthropic package not installed. "
-                    "Run: pip install anthropic"
-                )
+            with self._client_lock:
+                # Check again inside lock
+                if self._async_client is None:
+                    try:
+                        from anthropic import AsyncAnthropic
+                    except ImportError:
+                        raise ImportError(
+                            "anthropic package not installed. "
+                            "Run: pip install anthropic"
+                        )
 
-            self._async_client = AsyncAnthropic(
-                api_key=self._api_key,
-                timeout=self._timeout,
-                max_retries=self._max_retries,
-            )
+                    self._async_client = AsyncAnthropic(
+                        api_key=self._api_key,
+                        timeout=self._timeout,
+                        max_retries=self._max_retries,
+                    )
 
         return self._async_client
 

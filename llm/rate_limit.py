@@ -32,9 +32,10 @@ Usage:
 import asyncio
 import time
 import logging
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Deque
+from typing import Optional, Dict, Deque, Tuple
 from collections import deque
 from enum import Enum
 
@@ -78,6 +79,15 @@ class RateLimitConfig:
 
 
 @dataclass
+class Reservation:
+    """A token reservation that must be completed or cancelled."""
+    reservation_id: str
+    estimated_tokens: int
+    created_at: float
+    completed: bool = False
+
+
+@dataclass
 class RateLimitState:
     """Current state of rate limiting."""
     # Sliding window for per-minute tracking
@@ -88,6 +98,9 @@ class RateLimitState:
     day_requests: int = 0
     day_tokens: int = 0
     day_start: datetime = field(default_factory=datetime.now)
+
+    # Active reservations (TOCTOU fix: reserve at acquire, reconcile at record)
+    active_reservations: Dict[str, Reservation] = field(default_factory=dict)
 
     # Tracking for observability
     total_wait_time_ms: float = 0.0
@@ -153,28 +166,43 @@ class RateLimiter:
         self,
         estimated_tokens: int = 0,
         block: bool = True,
-    ) -> float:
+    ) -> Tuple[float, str]:
         """
-        Acquire permission to make a request.
+        Acquire permission to make a request with reservation.
 
         This should be called before making an API request. It checks
-        all rate limits and returns the time to wait (if any).
+        all rate limits, creates a reservation, and returns the time to wait.
+
+        IMPORTANT: You MUST call record_usage() or cancel_reservation() after
+        acquiring to release the reservation. Failing to do so will cause
+        the reserved tokens to remain "in use" until they expire.
 
         Args:
             estimated_tokens: Estimated tokens for this request
             block: If True, wait for capacity. If False, raise if limited.
 
         Returns:
-            Seconds to wait before making request (0 if immediate)
+            Tuple of (seconds_to_wait, reservation_id)
 
         Raises:
             RateLimitExceeded: If block=False and limits would be exceeded
         """
         async with self._lock:
             self._cleanup_old_entries()
+            self._cleanup_stale_reservations()
             self._check_day_rollover()
 
-            wait_time, limit_type = self._calculate_wait_time(estimated_tokens)
+            # Include active reservations in capacity calculation
+            reserved_tokens = sum(
+                r.estimated_tokens for r in self.state.active_reservations.values()
+            )
+            reserved_requests = len(self.state.active_reservations)
+
+            wait_time, limit_type = self._calculate_wait_time(
+                estimated_tokens,
+                extra_tokens=reserved_tokens,
+                extra_requests=reserved_requests,
+            )
 
             if wait_time > 0:
                 if not block:
@@ -198,26 +226,41 @@ class RateLimiter:
                     f"Rate limited ({limit_type.value}), waiting {wait_time:.2f}s"
                 )
 
-            return wait_time
+            # Create reservation to prevent TOCTOU race
+            reservation_id = str(uuid.uuid4())[:8]
+            self.state.active_reservations[reservation_id] = Reservation(
+                reservation_id=reservation_id,
+                estimated_tokens=estimated_tokens,
+                created_at=time.time(),
+            )
+
+            return wait_time, reservation_id
 
     async def record_usage(
         self,
         input_tokens: int,
         output_tokens: int,
+        reservation_id: Optional[str] = None,
     ) -> None:
         """
         Record actual token usage after request completes.
 
         This updates our tracking with the actual tokens used,
         which may differ from the estimate provided to acquire().
+        If a reservation_id is provided, the reservation is completed.
 
         Args:
             input_tokens: Actual input tokens used
             output_tokens: Actual output tokens used
+            reservation_id: Reservation ID from acquire() to complete
         """
         async with self._lock:
             now = time.time()
             total_tokens = input_tokens + output_tokens
+
+            # Complete the reservation if provided
+            if reservation_id and reservation_id in self.state.active_reservations:
+                del self.state.active_reservations[reservation_id]
 
             # Record in sliding windows
             self.state.minute_requests.append(now)
@@ -227,33 +270,75 @@ class RateLimiter:
             self.state.day_requests += 1
             self.state.day_tokens += total_tokens
 
-    def get_status(self) -> RateLimitStatus:
+    async def cancel_reservation(self, reservation_id: str) -> bool:
+        """
+        Cancel a reservation without recording usage.
+
+        Use this when a request fails and no tokens were actually consumed.
+
+        Args:
+            reservation_id: Reservation ID from acquire()
+
+        Returns:
+            True if reservation was found and cancelled, False otherwise
+        """
+        async with self._lock:
+            if reservation_id in self.state.active_reservations:
+                del self.state.active_reservations[reservation_id]
+                return True
+            return False
+
+    def _cleanup_stale_reservations(self) -> None:
+        """Remove reservations older than 5 minutes (stale/abandoned)."""
+        now = time.time()
+        stale_threshold = now - 300  # 5 minutes
+
+        stale_ids = [
+            rid for rid, r in self.state.active_reservations.items()
+            if r.created_at < stale_threshold
+        ]
+        for rid in stale_ids:
+            logger.warning(f"Cleaning up stale reservation {rid}")
+            del self.state.active_reservations[rid]
+
+    async def get_status(self) -> RateLimitStatus:
         """
         Get current rate limit status.
 
         Useful for monitoring and debugging.
+        Now async to properly lock state access.
         """
-        self._cleanup_old_entries()
-        self._check_day_rollover()
+        async with self._lock:
+            self._cleanup_old_entries()
+            self._cleanup_stale_reservations()
+            self._check_day_rollover()
 
-        requests_this_minute = len(self.state.minute_requests)
-        tokens_this_minute = sum(t[1] for t in self.state.minute_tokens)
+            requests_this_minute = len(self.state.minute_requests)
+            tokens_this_minute = sum(t[1] for t in self.state.minute_tokens)
 
-        wait_time, limit_type = self._calculate_wait_time(0)
+            # Include reservations in status
+            reserved_tokens = sum(
+                r.estimated_tokens for r in self.state.active_reservations.values()
+            )
+            reserved_requests = len(self.state.active_reservations)
 
-        return RateLimitStatus(
-            requests_this_minute=requests_this_minute,
-            tokens_this_minute=tokens_this_minute,
-            requests_today=self.state.day_requests,
-            tokens_today=self.state.day_tokens,
-            rpm_remaining=max(0, self.config.requests_per_minute - requests_this_minute),
-            tpm_remaining=max(0, self.config.tokens_per_minute - tokens_this_minute),
-            rpd_remaining=max(0, self.config.requests_per_day - self.state.day_requests),
-            tpd_remaining=max(0, self.config.tokens_per_day - self.state.day_tokens),
-            is_limited=wait_time > 0,
-            limiting_factor=limit_type if wait_time > 0 else None,
-            estimated_wait_seconds=wait_time,
-        )
+            wait_time, limit_type = self._calculate_wait_time(
+                0, extra_tokens=reserved_tokens, extra_requests=reserved_requests
+            )
+
+            return RateLimitStatus(
+                requests_this_minute=requests_this_minute + reserved_requests,
+                tokens_this_minute=tokens_this_minute + reserved_tokens,
+                requests_today=self.state.day_requests,
+                tokens_today=self.state.day_tokens,
+                rpm_remaining=max(0, self.config.requests_per_minute - requests_this_minute - reserved_requests),
+                tpm_remaining=max(0, self.config.tokens_per_minute - tokens_this_minute - reserved_tokens),
+                rpd_remaining=max(0, self.config.requests_per_day - self.state.day_requests),
+                tpd_remaining=max(0, self.config.tokens_per_day - self.state.day_tokens),
+                is_limited=wait_time > 0,
+                limiting_factor=limit_type if wait_time > 0 else None,
+                estimated_wait_seconds=wait_time,
+            )
 
     def _cleanup_old_entries(self) -> None:
         """Remove entries older than 1 minute from sliding windows."""
@@ -283,29 +368,41 @@ class RateLimiter:
     def _calculate_wait_time(
         self,
         estimated_tokens: int,
-    ) -> tuple[float, Optional[RateLimitType]]:
+        extra_tokens: int = 0,
+        extra_requests: int = 0,
+    ) -> Tuple[float, Optional[RateLimitType]]:
         """
         Calculate how long to wait before making a request.
+
+        Args:
+            estimated_tokens: Tokens for this request
+            extra_tokens: Additional tokens already reserved (from active reservations)
+            extra_requests: Additional requests already reserved
 
         Returns (wait_seconds, limiting_factor).
         """
         wait_time = 0.0
         limit_type = None
 
-        # Check requests per minute
-        current_rpm = len(self.state.minute_requests)
+        # Check requests per minute (include reservations)
+        current_rpm = len(self.state.minute_requests) + extra_requests
         effective_rpm_limit = int(self.config.requests_per_minute * self.config.burst_allowance)
 
         if current_rpm >= effective_rpm_limit:
             # Need to wait for oldest request to fall out of window
-            oldest = self.state.minute_requests[0]
-            rpm_wait = 60 - (time.time() - oldest) + 0.1  # Small buffer
-            if rpm_wait > wait_time:
-                wait_time = rpm_wait
+            if self.state.minute_requests:
+                oldest = self.state.minute_requests[0]
+                rpm_wait = 60 - (time.time() - oldest) + 0.1  # Small buffer
+                if rpm_wait > wait_time:
+                    wait_time = max(0.1, rpm_wait)
+                    limit_type = RateLimitType.REQUESTS_PER_MINUTE
+            else:
+                # Only reservations, no recorded requests yet - minimal wait
+                wait_time = 0.1
                 limit_type = RateLimitType.REQUESTS_PER_MINUTE
 
-        # Check tokens per minute
-        current_tpm = sum(t[1] for t in self.state.minute_tokens)
+        # Check tokens per minute (include reservations)
+        current_tpm = sum(t[1] for t in self.state.minute_tokens) + extra_tokens
         effective_tpm_limit = int(self.config.tokens_per_minute * self.config.burst_allowance)
 
         if current_tpm + estimated_tokens > effective_tpm_limit:

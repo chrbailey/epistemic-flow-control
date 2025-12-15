@@ -243,10 +243,10 @@ class RetryHandler:
         last_delay: float = 0
 
         for attempt in range(1, effective_max_attempts + 1):
-            attempt_start = datetime.now()
+            attempt_start_time = time.perf_counter()  # Track per-attempt timing
             attempt_record = RetryAttempt(
                 attempt_number=attempt,
-                started_at=attempt_start,
+                started_at=datetime.now(),
                 duration_ms=0,
                 succeeded=False,
                 delay_before_ms=last_delay * 1000,
@@ -256,9 +256,9 @@ class RetryHandler:
                 # Make the request
                 response = await provider.complete(request)
 
-                # Success!
+                # Success! Calculate per-attempt duration
                 attempt_record.succeeded = True
-                attempt_record.duration_ms = (time.perf_counter() - start_time) * 1000 - stats.total_delay_ms
+                attempt_record.duration_ms = (time.perf_counter() - attempt_start_time) * 1000
                 stats.add_attempt(attempt_record)
                 stats.total_time_ms = (time.perf_counter() - start_time) * 1000
 
@@ -274,10 +274,10 @@ class RetryHandler:
                 last_error = e
                 elapsed = time.perf_counter() - start_time
 
-                # Record the failed attempt
+                # Record the failed attempt with per-attempt duration
                 attempt_record.error_type = type(e).__name__
                 attempt_record.error_message = str(e)[:200]  # Truncate long messages
-                attempt_record.duration_ms = (time.perf_counter() - start_time) * 1000 - stats.total_delay_ms
+                attempt_record.duration_ms = (time.perf_counter() - attempt_start_time) * 1000
                 stats.add_attempt(attempt_record)
 
                 # Check if we should retry

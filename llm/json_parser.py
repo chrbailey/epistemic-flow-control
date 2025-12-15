@@ -83,16 +83,17 @@ class RobustJSONParser:
 
     # Regex patterns for extracting JSON from wrapped responses
     # Order matters: more specific patterns first
+    # NOTE: Object/array patterns use simple start/end matching to avoid ReDoS
+    # The actual JSON validation happens via json.loads()
     EXTRACTION_PATTERNS = [
         # Markdown JSON code block (most common)
         (r'```json\s*([\s\S]*?)\s*```', 'markdown_json'),
         # Generic markdown code block
         (r'```\s*([\s\S]*?)\s*```', 'markdown_generic'),
-        # JSON object (greedy, but handles nested)
-        (r'(\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})', 'object_extraction'),
-        # JSON array
-        (r'(\[(?:[^\[\]]|\[(?:[^\[\]]|\[[^\[\]]*\])*\])*\])', 'array_extraction'),
     ]
+
+    # Maximum input length to process (prevent DoS on huge inputs)
+    MAX_INPUT_LENGTH = 1_000_000  # 1MB
 
     def __init__(
         self,
@@ -135,6 +136,10 @@ class RobustJSONParser:
                 errors=["Empty response"],
             )
 
+        # Limit input size to prevent DoS
+        if len(response) > self.MAX_INPUT_LENGTH:
+            response = response[:self.MAX_INPUT_LENGTH]
+
         errors = []
         warnings = []
 
@@ -150,7 +155,7 @@ class RobustJSONParser:
         except json.JSONDecodeError as e:
             errors.append(f"Direct parse failed: {e}")
 
-        # Strategy 2: Extract from patterns
+        # Strategy 2: Extract from markdown patterns (safe regex)
         for pattern, pattern_name in self.EXTRACTION_PATTERNS:
             match = re.search(pattern, response, re.DOTALL)
             if match:
@@ -182,6 +187,33 @@ class RobustJSONParser:
                         )
                     except json.JSONDecodeError:
                         pass
+
+        # Strategy 2b: Find JSON object/array using bracket matching (safe, no regex)
+        extracted = self._find_json_by_brackets(response, expected_type)
+        if extracted:
+            try:
+                data = json.loads(extracted)
+                return ParseResult(
+                    status=ParseStatus.RECOVERED,
+                    data=data,
+                    raw_response=response,
+                    extraction_method="bracket_matching",
+                    recovered_issues=["Extracted JSON using bracket matching"],
+                )
+            except json.JSONDecodeError:
+                # Try with fixes
+                fixed = self._fix_common_issues(extracted)
+                try:
+                    data = json.loads(fixed)
+                    return ParseResult(
+                        status=ParseStatus.RECOVERED,
+                        data=data,
+                        raw_response=response,
+                        extraction_method="bracket_matching+fix",
+                        recovered_issues=["Extracted via brackets", "Applied fixes"],
+                    )
+                except json.JSONDecodeError:
+                    pass
 
         # Strategy 3: Fix common issues on full response
         fixed = self._fix_common_issues(response)
@@ -235,6 +267,58 @@ class RobustJSONParser:
             extraction_method="none",
             errors=errors,
         )
+
+    def _find_json_by_brackets(self, text: str, expected_type: str = "object") -> Optional[str]:
+        """
+        Find JSON by matching brackets - O(n) and safe from ReDoS.
+
+        This is a safe alternative to regex for nested JSON structures.
+        It finds the first complete JSON object or array by tracking bracket depth.
+        """
+        start_char = '{' if expected_type == "object" else '['
+        end_char = '}' if expected_type == "object" else ']'
+
+        # Find the first start character
+        start_idx = text.find(start_char)
+        if start_idx == -1:
+            # Try the other type
+            start_char = '[' if expected_type == "object" else '{'
+            end_char = ']' if expected_type == "object" else '}'
+            start_idx = text.find(start_char)
+            if start_idx == -1:
+                return None
+
+        # Track bracket depth to find matching end
+        depth = 0
+        in_string = False
+        escape_next = False
+
+        for i in range(start_idx, len(text)):
+            char = text[i]
+
+            if escape_next:
+                escape_next = False
+                continue
+
+            if char == '\\' and in_string:
+                escape_next = True
+                continue
+
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+
+            if in_string:
+                continue
+
+            if char == '{' or char == '[':
+                depth += 1
+            elif char == '}' or char == ']':
+                depth -= 1
+                if depth == 0:
+                    return text[start_idx:i + 1]
+
+        return None  # Unbalanced brackets
 
     def _fix_common_issues(self, text: str) -> str:
         """

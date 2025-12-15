@@ -93,6 +93,14 @@ class LLMClientConfig:
     log_responses: bool = True
     track_costs: bool = True
 
+    def __repr__(self) -> str:
+        """Safe repr that redacts API keys."""
+        key_display = "***REDACTED***" if self.anthropic_api_key else "None"
+        return (
+            f"LLMClientConfig(provider={self.provider!r}, model={self.model!r}, "
+            f"anthropic_api_key={key_display}, ...)"
+        )
+
 
 @dataclass
 class CompletionResult:
@@ -288,12 +296,13 @@ class UnifiedLLMClient:
                 f"max_tokens={request.max_tokens}"
             )
 
-        # Check rate limits
+        # Check rate limits and acquire reservation
         rate_limit_wait = 0.0
+        reservation_id: Optional[str] = None
         if self._rate_limiter:
             try:
                 estimated_tokens = self._provider.count_tokens(prompt)
-                wait_time = await self._rate_limiter.acquire(
+                wait_time, reservation_id = await self._rate_limiter.acquire(
                     estimated_tokens=estimated_tokens,
                     block=True,
                 )
@@ -317,11 +326,12 @@ class UnifiedLLMClient:
                 request,
             )
 
-            # Record usage for rate limiting
+            # Record usage and complete reservation
             if self._rate_limiter:
                 await self._rate_limiter.record_usage(
                     response.input_tokens,
                     response.output_tokens,
+                    reservation_id=reservation_id,
                 )
 
             # Update metrics
@@ -356,6 +366,9 @@ class UnifiedLLMClient:
             return result
 
         except AuthenticationError as e:
+            # Cancel reservation on failure (no tokens consumed)
+            if self._rate_limiter and reservation_id:
+                await self._rate_limiter.cancel_reservation(reservation_id)
             return self._create_error_result(
                 request_id=request_id,
                 error=str(e),
@@ -363,6 +376,8 @@ class UnifiedLLMClient:
                 start_time=start_time,
             )
         except ContextWindowError as e:
+            if self._rate_limiter and reservation_id:
+                await self._rate_limiter.cancel_reservation(reservation_id)
             return self._create_error_result(
                 request_id=request_id,
                 error=str(e),
@@ -370,6 +385,8 @@ class UnifiedLLMClient:
                 start_time=start_time,
             )
         except LLMError as e:
+            if self._rate_limiter and reservation_id:
+                await self._rate_limiter.cancel_reservation(reservation_id)
             return self._create_error_result(
                 request_id=request_id,
                 error=str(e),
@@ -377,6 +394,8 @@ class UnifiedLLMClient:
                 start_time=start_time,
             )
         except Exception as e:
+            if self._rate_limiter and reservation_id:
+                await self._rate_limiter.cancel_reservation(reservation_id)
             logger.exception(f"Unexpected error in request {request_id}")
             return self._create_error_result(
                 request_id=request_id,
@@ -521,10 +540,10 @@ class UnifiedLLMClient:
         """Get current session metrics."""
         return self._metrics
 
-    def get_rate_limit_status(self) -> Optional[RateLimitStatus]:
-        """Get current rate limit status."""
+    async def get_rate_limit_status(self) -> Optional[RateLimitStatus]:
+        """Get current rate limit status (async for thread safety)."""
         if self._rate_limiter:
-            return self._rate_limiter.get_status()
+            return await self._rate_limiter.get_status()
         return None
 
     def get_model_spec(self) -> ModelSpec:
