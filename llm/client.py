@@ -269,7 +269,10 @@ class UnifiedLLMClient:
 
         Args:
             prompt: The user prompt/message
-            system_prompt: Optional system prompt
+            system_prompt: Optional system prompt.
+                SECURITY NOTE: The caller is responsible for sanitizing the system_prompt.
+                User-controlled content should not be directly passed as system_prompt
+                without validation, as it could alter the LLM's behavior (prompt injection).
             max_tokens: Max response tokens (uses config default if not set)
             temperature: Sampling temperature (uses config default if not set)
             metadata: Optional metadata to attach to request
@@ -423,7 +426,10 @@ class UnifiedLLMClient:
 
         Args:
             prompt: The user prompt/message
-            system_prompt: Optional system prompt (JSON instructions will be appended)
+            system_prompt: Optional system prompt (JSON instructions will be appended).
+                SECURITY NOTE: The caller is responsible for sanitizing the system_prompt.
+                User-controlled content should not be directly passed as system_prompt
+                without validation, as it could alter the LLM's behavior (prompt injection).
             expected_fields: Fields to attempt extraction for if parsing fails
             max_tokens: Max response tokens
             temperature: Sampling temperature (recommend 0.0 for JSON)

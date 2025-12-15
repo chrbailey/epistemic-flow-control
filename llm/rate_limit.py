@@ -354,16 +354,31 @@ class RateLimiter:
             self.state.minute_tokens.popleft()
 
     def _check_day_rollover(self) -> None:
-        """Reset daily counters if day has changed."""
+        """Reset daily counters if day has changed.
+
+        Note: This method should only be called while holding self._lock to
+        prevent race conditions where multiple coroutines trigger rollover
+        simultaneously.
+        """
         now = datetime.now()
-        if now.date() != self.state.day_start.date():
-            logger.info(
-                f"Day rollover: {self.state.day_requests} requests, "
-                f"{self.state.day_tokens} tokens yesterday"
-            )
+        current_date = now.date()
+        if current_date != self.state.day_start.date():
+            # Capture stats before resetting
+            requests_yesterday = self.state.day_requests
+            tokens_yesterday = self.state.day_tokens
+
+            # Reset counters atomically
             self.state.day_requests = 0
             self.state.day_tokens = 0
             self.state.day_start = now
+
+            # Log after state update - if another coroutine raced us,
+            # they'll see the new day_start and skip
+            if requests_yesterday > 0 or tokens_yesterday > 0:
+                logger.info(
+                    f"Day rollover: {requests_yesterday} requests, "
+                    f"{tokens_yesterday} tokens yesterday"
+                )
 
     def _calculate_wait_time(
         self,

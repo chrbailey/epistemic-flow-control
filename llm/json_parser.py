@@ -331,12 +331,23 @@ class RobustJSONParser:
         text = text.strip()
 
         # Remove markdown code fence if present at start/end only
+        # Handle: ```json\n{}\n```, ```{}\n```, ```json{}``` (no newlines)
         if text.startswith('```'):
-            # Find the end of the first line
+            # Find the end of the opening fence
             first_newline = text.find('\n')
             if first_newline > 0:
                 text = text[first_newline + 1:]
-        if text.endswith('```'):
+            else:
+                # No newline - fence and content on same line like ```json{}```
+                # Skip the fence identifier if present
+                fence_end = 3
+                while fence_end < len(text) and text[fence_end].isalpha():
+                    fence_end += 1
+                text = text[fence_end:]
+
+        # Handle closing fence with optional whitespace/newlines before it
+        if text.rstrip().endswith('```'):
+            text = text.rstrip()
             text = text[:-3].rstrip()
 
         # Remove BOM if present
@@ -357,7 +368,16 @@ class RobustJSONParser:
         # But be careful not to break apostrophes in text
         # Only replace when they're clearly string delimiters
         # {'key': 'value'} -> {"key": "value"}
-        text = re.sub(r"(?<=[{,:\[\s])'([^']*)'(?=[},:}\]\s])", r'"\1"', text)
+        # Handle escaped single quotes inside: {'key': 'it\'s'} -> {"key": "it's"}
+        def replace_single_quotes(match):
+            content = match.group(1)
+            # Unescape any escaped single quotes
+            content = content.replace("\\'", "'")
+            # Escape any double quotes that might be in the content
+            content = content.replace('"', '\\"')
+            return f'"{content}"'
+
+        text = re.sub(r"(?<=[{,:\[\s])'((?:[^'\\]|\\.)*)'(?=[},:\]\s])", replace_single_quotes, text)
 
         # Fix unquoted keys (common in JavaScript-style output)
         # {key: "value"} -> {"key": "value"}
