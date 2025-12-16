@@ -38,6 +38,7 @@ try:
         parse_json_response,
         RateLimiter,
         RateLimitConfig,
+        RateLimitExceeded,
     )
     from llm.providers.anthropic import AnthropicProvider, CLAUDE_MODELS
     LLM_AVAILABLE = True
