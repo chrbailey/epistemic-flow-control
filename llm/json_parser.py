@@ -81,19 +81,35 @@ class RobustJSONParser:
     6. Partial field extraction (last resort)
     """
 
-    # Regex patterns for extracting JSON from wrapped responses
-    # Order matters: more specific patterns first
-    # NOTE: Object/array patterns use simple start/end matching to avoid ReDoS
-    # The actual JSON validation happens via json.loads()
-    EXTRACTION_PATTERNS = [
-        # Markdown JSON code block (most common)
-        (r'```json\s*([\s\S]*?)\s*```', 'markdown_json'),
-        # Generic markdown code block
-        (r'```\s*([\s\S]*?)\s*```', 'markdown_generic'),
-    ]
-
     # Maximum input length to process (prevent DoS on huge inputs)
     MAX_INPUT_LENGTH = 1_000_000  # 1MB
+
+    # Pre-compiled regex patterns for extraction (compiled once at class load)
+    # Order matters: more specific patterns first
+    _MARKDOWN_JSON_RE = re.compile(r'```json\s*([\s\S]*?)\s*```', re.DOTALL)
+    _MARKDOWN_GENERIC_RE = re.compile(r'```\s*([\s\S]*?)\s*```', re.DOTALL)
+
+    # Pre-compiled patterns for _fix_common_issues (significant speedup)
+    _TRAILING_COMMA_RE = re.compile(r',(\s*[}\]])')
+    _MISSING_COMMA_NEWLINE_RE = re.compile(r'"\s*\n\s*"')
+    _MISSING_COMMA_NUMBER_RE = re.compile(r'(\d)\s*\n\s*"')
+    _MISSING_COMMA_LITERAL_RE = re.compile(r'(true|false|null)\s*\n\s*"')
+    _SINGLE_QUOTE_RE = re.compile(r"(?<=[{,:\[\s])'((?:[^'\\]|\\.)*)'(?=[},:\]\s])")
+    _UNQUOTED_KEY_RE = re.compile(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:')
+    _TRUE_RE = re.compile(r'\bTrue\b')
+    _FALSE_RE = re.compile(r'\bFalse\b')
+    _NONE_RE = re.compile(r'\bNone\b')
+    _NAN_RE = re.compile(r'\bNaN\b')
+    _INF_RE = re.compile(r'\bInfinity\b')
+    _NEG_INF_RE = re.compile(r'-Infinity\b')
+    _LINE_COMMENT_RE = re.compile(r'//[^\n]*\n')
+    _BLOCK_COMMENT_RE = re.compile(r'/\*.*?\*/', re.DOTALL)
+
+    # Extraction patterns as list for iteration
+    EXTRACTION_PATTERNS = [
+        (_MARKDOWN_JSON_RE, 'markdown_json'),
+        (_MARKDOWN_GENERIC_RE, 'markdown_generic'),
+    ]
 
     def __init__(
         self,
@@ -155,9 +171,9 @@ class RobustJSONParser:
         except json.JSONDecodeError as e:
             errors.append(f"Direct parse failed: {e}")
 
-        # Strategy 2: Extract from markdown patterns (safe regex)
-        for pattern, pattern_name in self.EXTRACTION_PATTERNS:
-            match = re.search(pattern, response, re.DOTALL)
+        # Strategy 2: Extract from markdown patterns (pre-compiled regex)
+        for compiled_pattern, pattern_name in self.EXTRACTION_PATTERNS:
+            match = compiled_pattern.search(response)
             if match:
                 extracted = match.group(1).strip()
                 try:
@@ -356,13 +372,13 @@ class RobustJSONParser:
 
         # Fix trailing commas before ] or }
         # {"a": 1, "b": 2,} -> {"a": 1, "b": 2}
-        text = re.sub(r',(\s*[}\]])', r'\1', text)
+        text = self._TRAILING_COMMA_RE.sub(r'\1', text)
 
         # Fix missing commas between elements (common in LLM output)
         # {"a": 1 "b": 2} -> {"a": 1, "b": 2}
-        text = re.sub(r'"\s*\n\s*"', '",\n"', text)
-        text = re.sub(r'(\d)\s*\n\s*"', r'\1,\n"', text)
-        text = re.sub(r'(true|false|null)\s*\n\s*"', r'\1,\n"', text)
+        text = self._MISSING_COMMA_NEWLINE_RE.sub('",\n"', text)
+        text = self._MISSING_COMMA_NUMBER_RE.sub(r'\1,\n"', text)
+        text = self._MISSING_COMMA_LITERAL_RE.sub(r'\1,\n"', text)
 
         # Replace single quotes with double quotes (for string delimiters)
         # But be careful not to break apostrophes in text
@@ -377,28 +393,28 @@ class RobustJSONParser:
             content = content.replace('"', '\\"')
             return f'"{content}"'
 
-        text = re.sub(r"(?<=[{,:\[\s])'((?:[^'\\]|\\.)*)'(?=[},:\]\s])", replace_single_quotes, text)
+        text = self._SINGLE_QUOTE_RE.sub(replace_single_quotes, text)
 
         # Fix unquoted keys (common in JavaScript-style output)
         # {key: "value"} -> {"key": "value"}
-        text = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', text)
+        text = self._UNQUOTED_KEY_RE.sub(r'\1"\2":', text)
 
         # Replace Python-style True/False/None with JSON equivalents
-        text = re.sub(r'\bTrue\b', 'true', text)
-        text = re.sub(r'\bFalse\b', 'false', text)
-        text = re.sub(r'\bNone\b', 'null', text)
+        text = self._TRUE_RE.sub('true', text)
+        text = self._FALSE_RE.sub('false', text)
+        text = self._NONE_RE.sub('null', text)
 
         # Replace NaN and Infinity with null (not valid JSON)
-        text = re.sub(r'\bNaN\b', 'null', text)
-        text = re.sub(r'\bInfinity\b', 'null', text)
-        text = re.sub(r'-Infinity\b', 'null', text)
+        text = self._NAN_RE.sub('null', text)
+        text = self._INF_RE.sub('null', text)
+        text = self._NEG_INF_RE.sub('null', text)
 
         # Fix escaped single quotes that should be regular apostrophes
         text = text.replace("\\'", "'")
 
         # Remove C-style comments (sometimes LLMs add these)
-        text = re.sub(r'//[^\n]*\n', '\n', text)
-        text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)
+        text = self._LINE_COMMENT_RE.sub('\n', text)
+        text = self._BLOCK_COMMENT_RE.sub('', text)
 
         return text
 

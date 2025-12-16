@@ -368,38 +368,15 @@ class UnifiedLLMClient:
 
             return result
 
-        except AuthenticationError as e:
+        except Exception as e:
             # Cancel reservation on failure (no tokens consumed)
             if self._rate_limiter and reservation_id:
                 await self._rate_limiter.cancel_reservation(reservation_id)
-            return self._create_error_result(
-                request_id=request_id,
-                error=str(e),
-                error_type="AuthenticationError",
-                start_time=start_time,
-            )
-        except ContextWindowError as e:
-            if self._rate_limiter and reservation_id:
-                await self._rate_limiter.cancel_reservation(reservation_id)
-            return self._create_error_result(
-                request_id=request_id,
-                error=str(e),
-                error_type="ContextWindowError",
-                start_time=start_time,
-            )
-        except LLMError as e:
-            if self._rate_limiter and reservation_id:
-                await self._rate_limiter.cancel_reservation(reservation_id)
-            return self._create_error_result(
-                request_id=request_id,
-                error=str(e),
-                error_type=type(e).__name__,
-                start_time=start_time,
-            )
-        except Exception as e:
-            if self._rate_limiter and reservation_id:
-                await self._rate_limiter.cancel_reservation(reservation_id)
-            logger.exception(f"Unexpected error in request {request_id}")
+
+            # Log unexpected errors with full traceback
+            if not isinstance(e, LLMError):
+                logger.exception(f"Unexpected error in request {request_id}")
+
             return self._create_error_result(
                 request_id=request_id,
                 error=str(e),

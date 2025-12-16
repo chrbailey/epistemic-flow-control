@@ -371,6 +371,33 @@ class PatternDatabase:
             notes="Auto-generated default prior"
         )
 
+    # ========== HELPER METHODS ==========
+
+    def _row_to_pattern(self, row: tuple) -> StoredPattern:
+        """Convert a database row to a StoredPattern object."""
+        return StoredPattern(
+            pattern_id=row[0],
+            pattern_key=row[1],
+            subject=row[2],
+            pattern_type=PatternType(row[3]),
+            description=row[4],
+            structured_pattern=json.loads(row[5]),
+            domain=row[6],
+            supporting_events=row[7],
+            contradicting_events=row[8],
+            total_observations=row[9],
+            raw_weight=row[10],
+            decayed_weight=row[11],
+            human_adjusted_weight=row[12],
+            first_observed=datetime.fromisoformat(row[13]),
+            last_observed=datetime.fromisoformat(row[14]),
+            last_updated=datetime.fromisoformat(row[15]),
+            human_override=bool(row[16]),
+            human_override_reason=row[17],
+            human_overrider=row[18],
+            source_pattern_ids=row[19].split(",") if row[19] else []
+        )
+
     # ========== PATTERN STORAGE ==========
 
     def store_pattern(self, extracted: ExtractedPattern) -> str:
@@ -504,28 +531,7 @@ class PatternDatabase:
         if not row:
             return None
 
-        return StoredPattern(
-            pattern_id=row[0],
-            pattern_key=row[1],
-            subject=row[2],
-            pattern_type=PatternType(row[3]),
-            description=row[4],
-            structured_pattern=json.loads(row[5]),
-            domain=row[6],
-            supporting_events=row[7],
-            contradicting_events=row[8],
-            total_observations=row[9],
-            raw_weight=row[10],
-            decayed_weight=row[11],
-            human_adjusted_weight=row[12],
-            first_observed=datetime.fromisoformat(row[13]),
-            last_observed=datetime.fromisoformat(row[14]),
-            last_updated=datetime.fromisoformat(row[15]),
-            human_override=bool(row[16]),
-            human_override_reason=row[17],
-            human_overrider=row[18],
-            source_pattern_ids=row[19].split(",") if row[19] else []
-        )
+        return self._row_to_pattern(row)
 
     def query_patterns(
         self,
@@ -561,31 +567,10 @@ class PatternDatabase:
         rows = cursor.fetchall()
         conn.close()
 
+        # Convert rows to patterns and filter by min_weight
         patterns = []
         for row in rows:
-            pattern = StoredPattern(
-                pattern_id=row[0],
-                pattern_key=row[1],
-                subject=row[2],
-                pattern_type=PatternType(row[3]),
-                description=row[4],
-                structured_pattern=json.loads(row[5]),
-                domain=row[6],
-                supporting_events=row[7],
-                contradicting_events=row[8],
-                total_observations=row[9],
-                raw_weight=row[10],
-                decayed_weight=row[11],
-                human_adjusted_weight=row[12],
-                first_observed=datetime.fromisoformat(row[13]),
-                last_observed=datetime.fromisoformat(row[14]),
-                last_updated=datetime.fromisoformat(row[15]),
-                human_override=bool(row[16]),
-                human_override_reason=row[17],
-                human_overrider=row[18],
-                source_pattern_ids=row[19].split(",") if row[19] else []
-            )
-
+            pattern = self._row_to_pattern(row)
             if pattern.effective_weight() >= min_weight:
                 patterns.append(pattern)
 

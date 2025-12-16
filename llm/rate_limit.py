@@ -322,8 +322,12 @@ class RateLimiter:
             )
             reserved_requests = len(self.state.active_reservations)
 
+            # Pass precomputed token sum to avoid re-iterating deque
             wait_time, limit_type = self._calculate_wait_time(
-                0, extra_tokens=reserved_tokens, extra_requests=reserved_requests
+                0,
+                extra_tokens=reserved_tokens,
+                extra_requests=reserved_requests,
+                precomputed_tpm=tokens_this_minute,
             )
 
             return RateLimitStatus(
@@ -385,6 +389,7 @@ class RateLimiter:
         estimated_tokens: int,
         extra_tokens: int = 0,
         extra_requests: int = 0,
+        precomputed_tpm: Optional[int] = None,
     ) -> Tuple[float, Optional[RateLimitType]]:
         """
         Calculate how long to wait before making a request.
@@ -393,6 +398,7 @@ class RateLimiter:
             estimated_tokens: Tokens for this request
             extra_tokens: Additional tokens already reserved (from active reservations)
             extra_requests: Additional requests already reserved
+            precomputed_tpm: Pre-computed tokens per minute (avoids re-iteration)
 
         Returns (wait_seconds, limiting_factor).
         """
@@ -417,7 +423,9 @@ class RateLimiter:
                 limit_type = RateLimitType.REQUESTS_PER_MINUTE
 
         # Check tokens per minute (include reservations)
-        current_tpm = sum(t[1] for t in self.state.minute_tokens) + extra_tokens
+        # Use precomputed value if available to avoid re-iterating deque
+        base_tpm = precomputed_tpm if precomputed_tpm is not None else sum(t[1] for t in self.state.minute_tokens)
+        current_tpm = base_tpm + extra_tokens
         effective_tpm_limit = int(self.config.tokens_per_minute * self.config.burst_allowance)
 
         if current_tpm + estimated_tokens > effective_tpm_limit:
