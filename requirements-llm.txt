@@ -1,0 +1,4 @@
+# LLM Integration Dependencies
+# Install with: pip install -r requirements-llm.txt
+
+anthropic>=0.18.0

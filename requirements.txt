@@ -1,0 +1,15 @@
+# Epistemic Flow Control - Core Dependencies
+#
+# The core library has NO required dependencies (uses Python standard library only).
+# Install optional dependencies for additional features:
+#
+#   pip install -r requirements.txt              # Core only (this file)
+#   pip install -r requirements-llm.txt          # + LLM integration
+#   pip install -r requirements-demo.txt         # + Interactive demo
+#   pip install -r requirements-dev.txt          # + Development tools
+#
+# Or install everything:
+#   pip install -e ".[all]"
+
+# No core dependencies - pure Python standard library!
+# This is intentional for maximum portability.

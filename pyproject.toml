@@ -1,0 +1,110 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "epistemic-flow-control"
+version = "0.1.0"
+description = "Human-gated probabilistic intelligence for high-stakes domains"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.8"
+authors = [
+    {name = "Christopher Bailey", email = "chris@example.com"}
+]
+keywords = [
+    "llm",
+    "human-in-the-loop",
+    "bayesian",
+    "calibration",
+    "epistemology",
+    "probabilistic",
+    "machine-learning",
+    "ai-safety",
+    "decision-support",
+    "high-stakes"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+dependencies = []
+
+[project.optional-dependencies]
+llm = [
+    "anthropic>=0.18.0",
+]
+demo = [
+    "streamlit>=1.28.0",
+    "plotly>=5.18.0",
+    "pandas>=2.0.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+all = [
+    "epistemic-flow-control[llm,demo,dev]",
+]
+
+[project.urls]
+Homepage = "https://github.com/chrbailey/epistemic-flow-control"
+Documentation = "https://github.com/chrbailey/epistemic-flow-control#readme"
+Repository = "https://github.com/chrbailey/epistemic-flow-control"
+Issues = "https://github.com/chrbailey/epistemic-flow-control/issues"
+
+[project.scripts]
+efc = "unified_system:main"
+
+[tool.setuptools.packages.find]
+include = ["core*", "gates*", "validation*", "training*", "llm*", "examples*", "streamlit_demo*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "llm: marks tests that require LLM API access",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # do not perform function calls in argument defaults
+]
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true

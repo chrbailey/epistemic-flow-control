@@ -1,22 +1,134 @@
-# Epistemic Flow Control
+<p align="center">
+  <h1 align="center">💧 Epistemic Flow Control</h1>
+  <p align="center">
+    <strong>Human-gated probabilistic intelligence for high-stakes domains</strong>
+  </p>
+  <p align="center">
+    <a href="https://github.com/chrbailey/epistemic-flow-control/actions"><img src="https://github.com/chrbailey/epistemic-flow-control/workflows/CI/badge.svg" alt="CI Status"></a>
+    <a href="https://github.com/chrbailey/epistemic-flow-control/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License"></a>
+    <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="Python 3.8+"></a>
+    <a href="https://github.com/chrbailey/epistemic-flow-control/stargazers"><img src="https://img.shields.io/github/stars/chrbailey/epistemic-flow-control?style=social" alt="Stars"></a>
+  </p>
+</p>
 
-**Human-gated probabilistic intelligence for high-stakes domains.**
+<p align="center">
+  <em>Make LLM outputs reliable for decisions that actually matter.</em>
+</p>
 
-## The Water in Sand Metaphor
+---
 
-LLMs generate probabilistic output like water flowing. Humans don't create the water - they control where it flows by opening, closing, and adjusting channels.
+## 🌊 The Problem
+
+LLMs are **probabilistically reliable** but not **deterministically correct**. For casual use, that's fine. For high-stakes decisions—legal, medical, financial—it's dangerous.
+
+Traditional approaches try to make LLMs "more accurate." But they can never reach 100%. **We need a different approach.**
+
+## 💡 The Solution: Water in Sand
 
 ```
-LLM Output (Water) → Human Gates (Channels) → Production Use (Destination)
+LLM Output (Water) → Human Gates (Channels) → Production (Destination)
 ```
 
-The human role:
-1. **Open channels** - approve high-confidence outputs
-2. **Close channels** - block low-confidence or high-risk outputs
-3. **Adjust flow** - override weights based on domain expertise
-4. **Build new paths** - identify patterns machines miss
+- **💧 LLMs produce "water"** — Probabilistic output that flows abundantly
+- **🏖️ Domain structure is "sand"** — Events, patterns, databases that shape the flow
+- **🚪 Humans control the gates** — Opening, closing, and adjusting channels
 
-## Architecture
+**The human doesn't create the water. The human controls where it flows.**
+
+## ✨ Key Features
+
+| Feature | Description |
+|---------|-------------|
+| **📊 Bayesian Pattern Weights** | Confidence grows with evidence using proper statistical updating |
+| **⏳ Temporal Decay** | Old patterns fade without fresh confirming evidence |
+| **🎚️ Calibrated Confidence** | When we say 80%, we're right 80% of the time |
+| **🚪 Human Review Gates** | High-stakes decisions require human approval |
+| **📈 Outcome Learning** | Every outcome improves future predictions |
+| **🔬 Wilson Score Intervals** | Proper uncertainty for small samples |
+
+## 🚀 Quick Start
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/chrbailey/epistemic-flow-control.git
+cd epistemic-flow-control
+
+# Install core (no dependencies!)
+pip install -e .
+
+# Or with all features
+pip install -e ".[all]"
+```
+
+### Try the Interactive Demo
+
+```bash
+# Install demo dependencies
+pip install -e ".[demo]"
+
+# Run the Streamlit demo
+streamlit run streamlit_demo/app.py
+```
+
+### Basic Usage
+
+```python
+from unified_system import EpistemicFlowControl, SystemConfig
+from datetime import datetime
+
+# Initialize
+config = SystemConfig(db_dir="./data", domain="judicial")
+system = EpistemicFlowControl(config)
+
+# Register an information source
+system.register_source(
+    source_id="pacer",
+    name="PACER",
+    source_type="official",
+    reliability=0.99
+)
+
+# Ingest an event (ground truth)
+result = system.ingest_event(
+    what="Judge granted summary judgment",
+    who=["Judge Smith", "Acme Corp", "Beta Inc"],
+    when=datetime.now(),
+    where="N.D. Cal",
+    source_id="pacer",
+    raw_text="Order granting motion for summary judgment..."
+)
+
+# Patterns are automatically extracted
+print(f"Extracted {len(result['patterns_extracted'])} patterns")
+
+# Make a prediction
+prediction = system.make_prediction(
+    prediction_type="ruling",
+    predicted_value="Motion will be granted",
+    context={"case_type": "patent"},
+    source_patterns=["pat_001"],
+    stakes="high"
+)
+
+# Check the gate decision
+print(f"Gate: {prediction['gate_decision']}")  # "review" for high stakes
+print(f"Confidence: {prediction['calibrated_confidence']:.1%}")
+
+# High-stakes items need human review
+if prediction['needs_human_review']:
+    items = system.get_items_needing_review()
+    # Human reviews and approves...
+    system.submit_human_review(
+        item_id=prediction['prediction_id'],
+        reviewer_id="expert_001",
+        decision="approve",
+        notes="Consistent with recent pattern"
+    )
+```
+
+## 🏗️ Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -40,166 +152,89 @@ The human role:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Components
+## 📊 Statistical Foundation
 
-| Component | Purpose | Human Gate |
-|-----------|---------|------------|
-| `EventStore` | Ground truth storage | Event verification |
-| `PatternExtractor` | Extract patterns from events | Extraction validation |
-| `PatternDatabase` | Store patterns with Bayesian weights | Weight override |
-| `ReviewGate` | Control flow to production | Review decisions |
-| `CalibrationEngine` | Track prediction accuracy | Outcome recording |
-| `TrainingDataGenerator` | Prepare labeled examples | All labeling tasks |
+This isn't just another LLM wrapper. It's built on solid statistical principles:
 
-## Quick Start
+- **[Wilson Score Intervals](https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval#Wilson_score_interval)** — Conservative confidence bounds that handle small samples correctly. 3 successes out of 5? That's not 60% confidence—Wilson lower bound says ~23%.
 
-```python
-from unified_system import EpistemicFlowControl, SystemConfig
+- **[Bayesian Updating](https://en.wikipedia.org/wiki/Bayesian_inference)** — Prior beliefs + observations = posterior beliefs. Patterns strengthen with evidence.
 
-# Initialize
-config = SystemConfig(
-    db_dir="./data",
-    domain="judicial"
-)
-system = EpistemicFlowControl(config)
+- **[Expected Calibration Error](https://arxiv.org/abs/1706.04599)** — The standard metric for prediction calibration. We measure and minimize it.
 
-# Register a source
-system.register_source(
-    source_id="pacer",
-    name="PACER",
-    source_type="official",
-    reliability=0.99
-)
+- **Temporal Decay** — Patterns become stale. A judge's behavior 5 years ago may not predict today. Exponential decay with configurable half-life.
 
-# Ingest an event
-result = system.ingest_event(
-    what="Judge granted summary judgment",
-    who=["Judge Smith", "Plaintiff Corp", "Defendant Inc"],
-    when=datetime.now(),
-    where="N.D. Cal",
-    source_id="pacer",
-    raw_text="Order granting motion for summary judgment..."
-)
-
-# Get patterns for a subject
-patterns = system.get_patterns_for_subject("Judge Smith")
-
-# Make a prediction
-prediction = system.make_prediction(
-    prediction_type="ruling",
-    predicted_value="Motion will be granted",
-    context={"case_type": "patent", "motion": "summary_judgment"},
-    source_patterns=["pat_001", "pat_002"],
-    stakes="high"
-)
-
-# Check what needs human review
-items = system.get_items_needing_review()
-
-# Submit human review
-system.submit_human_review(
-    item_id=prediction["prediction_id"],
-    reviewer_id="expert_001",
-    decision="approve",
-    notes="Consistent with pattern"
-)
-
-# Record outcome (when known)
-system.record_prediction_outcome(
-    prediction_id=prediction["prediction_id"],
-    actual_value="Motion was granted",
-    was_correct=True
-)
-```
-
-## Training Data Requirements
-
-The system needs **small amounts of high-quality data** to bootstrap:
-
-| Data Type | Minimum | Purpose |
-|-----------|---------|---------|
-| Source Reliability | 50 | Trust calibration |
-| Pattern Extractions | 100 | Extraction accuracy |
-| Prediction Outcomes | 200 | Confidence calibration |
-| Human Overrides | 20 | Override learning |
-
-See `TRAINING_DATA_REQUIREMENTS.md` for detailed collection guide.
-
-## Key Principles
-
-### 1. Events as Ground Truth
-Everything traces back to verifiable events. No patterns without events.
-
-### 2. Bayesian Updating
-Pattern weights update with new evidence. Confidence grows with data.
-
-### 3. Temporal Decay
-Patterns become stale without new confirming events. Old patterns decay.
-
-### 4. Human Gates
-Humans control the flow. High-stakes decisions require human approval.
-
-### 5. Calibrated Confidence
-Confidence scores match actual accuracy. 80% confidence = right 80% of time.
-
-### 6. Outcome Learning
-Every outcome is training data. The system improves from use.
-
-## CLI Interface
-
-```bash
-# Check system status
-python unified_system.py --domain judicial status
-
-# Get system health metrics
-python unified_system.py health
-
-# Run calibration
-python unified_system.py calibrate
-
-# Apply temporal decay (run daily)
-python unified_system.py decay
-
-# Check training data status
-python unified_system.py training
-```
-
-## File Structure
+## 📁 Project Structure
 
 ```
 epistemic-flow-control/
 ├── core/
-│   ├── event_store.py      # Ground truth layer
-│   ├── pattern_extractor.py # LLM pattern extraction
-│   └── pattern_database.py  # Bayesian weight storage
+│   ├── event_store.py      # Ground truth storage (770 lines)
+│   ├── pattern_extractor.py # LLM pattern extraction (957 lines)
+│   └── pattern_database.py  # Bayesian weights (878 lines)
 ├── gates/
-│   └── review_gate.py      # Human review flow control
+│   └── review_gate.py      # Human review flow control (907 lines)
 ├── validation/
-│   └── calibration_engine.py # Accuracy tracking
+│   └── calibration_engine.py # Accuracy tracking (771 lines)
 ├── training/
-│   └── data_generator.py   # Training data collection
+│   └── data_generator.py   # Training data collection (914 lines)
+├── llm/
+│   ├── client.py           # LLM integration hub
+│   └── providers/          # Provider implementations
+├── examples/               # Compelling demo datasets
+├── streamlit_demo/         # Interactive web demo
 ├── tests/
-├── unified_system.py       # Integration layer
-├── TRAINING_DATA_REQUIREMENTS.md
-└── README.md
+└── unified_system.py       # Main integration layer
 ```
 
-## Statistical Foundation
+## 🎭 Example: The Changing Judge
 
-- **Wilson Score Intervals**: Conservative confidence bounds for small samples
-- **Bayesian Updating**: Prior beliefs + observations = posterior beliefs
-- **Temporal Decay**: Exponential decay with configurable half-life
-- **Expected Calibration Error (ECE)**: Measure of confidence calibration
+One of our demo stories shows why this matters:
 
-## Design Philosophy
+**Judge Rodriguez** had a 78% summary judgment grant rate. Then she became Chief Judge.
 
-This system is built on the insight that:
+With new administrative duties, her grant rate dropped to 42%. A system relying on historical data would be **dangerously wrong**.
 
-> "LLM output is probabilistically reliable but not deterministically correct.
-> Human oversight adds irreplaceable value at specific gate points."
+Epistemic Flow Control:
+1. ⏳ **Temporal decay** reduces confidence in old patterns
+2. 📉 **Bayesian updating** adjusts weights with new evidence
+3. 🚪 **Review gate** routes uncertain predictions to humans
+4. 📈 **Calibration** ensures confidence matches reality
 
-The competitive advantage is not better LLM prompts - it's the **human oversight infrastructure** that makes probabilistic output reliable for high-stakes use.
+The system doesn't try to be perfect. It **knows when it's uncertain**.
 
-## License
+## 🤝 Contributing
 
-Proprietary. Copyright 2025.
+We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+```bash
+# Development setup
+pip install -e ".[dev]"
+
+# Run tests
+pytest tests/ -v
+
+# Run linter
+ruff check .
+```
+
+## 📚 Documentation
+
+- [Training Data Requirements](TRAINING_DATA_REQUIREMENTS.md) — How to bootstrap the system
+- [Validation Package](VALIDATION_PACKAGE.md) — Verification and testing guide
+- [LLM Layer Review](LLM_LAYER_REVIEW.md) — Technical deep-dive into LLM integration
+
+## 📜 License
+
+[Apache 2.0](LICENSE) — Use it, modify it, build on it.
+
+## ⭐ Star History
+
+If this project helps you build more reliable AI systems, consider giving it a star!
+
+---
+
+<p align="center">
+  <strong>Built for decisions that matter.</strong><br>
+  <em>Because "probably right" isn't good enough when stakes are high.</em>
+</p>

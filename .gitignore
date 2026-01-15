@@ -48,6 +48,10 @@ Thumbs.db
 *.sqlite3
 !test_data/*.db
 
+# Demo data (generated at runtime)
+demo_data/
+example_data/
+
 # Secrets - NEVER commit these
 .env
 .env.*
