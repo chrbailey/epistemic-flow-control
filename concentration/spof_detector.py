@@ -11,6 +11,8 @@ Use cases:
 - Single law firm handling all government contracts (key man risk)
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional

@@ -12,6 +12,8 @@ changes in judicial behavior. Drift can indicate:
 Early detection enables proactive recalibration of confidence estimates.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum

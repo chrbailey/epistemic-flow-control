@@ -58,6 +58,17 @@ from .jurisdictions_data import (
     get_court_data,
     get_judge_profile,
 )
+from .alsup_case_study import (
+    ALSUP_TIMELINE,
+    AlsupCaseEvent,
+    get_alsup_pattern_timeline,
+    calculate_drift_example as alsup_drift_example,
+    confidence_calibration_example as alsup_calibration_example,
+    generate_demo_events as get_alsup_events,
+    generate_expertise_concentration as get_alsup_concentration,
+    get_full_case_study as get_oracle_case_study,
+    ORACLE_CASE_STUDY,
+)
 
 __all__ = [
     # Original exports
@@ -86,4 +97,14 @@ __all__ = [
     "JURISDICTION_JUDGE_PROFILES",
     "get_court_data",
     "get_judge_profile",
+    # Alsup Case Study (Real Data)
+    "ALSUP_TIMELINE",
+    "AlsupCaseEvent",
+    "get_alsup_pattern_timeline",
+    "alsup_drift_example",
+    "alsup_calibration_example",
+    "get_alsup_events",
+    "get_alsup_concentration",
+    "get_oracle_case_study",
+    "ORACLE_CASE_STUDY",
 ]
