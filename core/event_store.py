@@ -215,11 +215,109 @@ class EventStore:
             )
         """)
 
+        # ========== NEW: Normalization Tables ==========
+
+        # Normalized judges table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS normalized_judges (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                raw_input TEXT NOT NULL,
+                normalized_name TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                first_name TEXT,
+                middle_name TEXT,
+                last_name TEXT,
+                suffix TEXT,
+                created_at TEXT NOT NULL,
+                UNIQUE(raw_input)
+            )
+        """)
+
+        # Normalized lawyers table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS normalized_lawyers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                raw_input TEXT NOT NULL,
+                normalized_name TEXT,
+                is_valid INTEGER NOT NULL,
+                rejection_reason TEXT,
+                confidence REAL NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(raw_input)
+            )
+        """)
+
+        # ========== NEW: Concentration Analysis Tables ==========
+
+        # Entity concentration tracking
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS entity_concentration (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_type TEXT NOT NULL,
+                entity_id TEXT NOT NULL,
+                domain TEXT NOT NULL,
+                share_pct REAL NOT NULL,
+                hhi_contribution REAL NOT NULL,
+                period_start TEXT NOT NULL,
+                period_end TEXT NOT NULL,
+                total_volume INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+
+        # ========== NEW: Drift Detection Tables ==========
+
+        # Pattern baselines for drift comparison
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pattern_baselines (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_id TEXT NOT NULL,
+                pattern_type TEXT NOT NULL,
+                embedding BLOB NOT NULL,
+                dimensions INTEGER NOT NULL,
+                sample_count INTEGER NOT NULL,
+                metadata TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                is_active INTEGER DEFAULT 1,
+                UNIQUE(entity_id, pattern_type, is_active)
+            )
+        """)
+
+        # Detected drift events
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS drift_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                entity_id TEXT NOT NULL,
+                pattern_type TEXT NOT NULL,
+                baseline_id INTEGER,
+                drift_type TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                baseline_similarity REAL NOT NULL,
+                drift_magnitude REAL NOT NULL,
+                confidence_impact REAL NOT NULL,
+                top_changed_dimensions TEXT,
+                recommendation TEXT,
+                detected_at TEXT NOT NULL,
+                acknowledged_at TEXT,
+                acknowledged_by TEXT,
+                FOREIGN KEY (baseline_id) REFERENCES pattern_baselines(id)
+            )
+        """)
+
         # Create indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_domain ON events(domain)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_when ON events(event_when)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_source ON events(source_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_hash ON events(content_hash)")
+
+        # New indexes for normalization and drift
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_norm_judges_name ON normalized_judges(normalized_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_norm_lawyers_name ON normalized_lawyers(normalized_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_concentration_entity ON entity_concentration(entity_type, entity_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_baselines_entity ON pattern_baselines(entity_id, pattern_type)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_drift_entity ON drift_events(entity_id, pattern_type)")
 
         conn.commit()
         conn.close()

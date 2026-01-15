@@ -46,12 +46,22 @@ from training.data_generator import (
     TrainingDataGenerator, LabelingTask, TaskType
 )
 
+# Import new modules
+from normalizers import JudgeNormalizer, LawyerNormalizer
+from concentration import HHICalculator, SPOFDetector
+from drift import EmbeddingTracker, DriftDetector
+from jurisdictions import JurisdictionalContext, NDCalContext, AlsupContext
+
 
 @dataclass
 class SystemConfig:
     """Configuration for the unified system."""
     db_dir: str = "./data"
     domain: str = "default"
+
+    # NEW: Jurisdiction context
+    jurisdiction: Optional[str] = None  # e.g., "nd_cal"
+    judge: Optional[str] = None         # e.g., "alsup"
 
     # Gate thresholds (can be calibrated)
     auto_pass_threshold: float = 0.92
@@ -109,6 +119,196 @@ class EpistemicFlowControl:
         self.training_data = TrainingDataGenerator(
             db_path=f"{config.db_dir}/training.db"
         )
+
+        # NEW: Initialize new components
+        self.judge_normalizer = JudgeNormalizer()
+        self.lawyer_normalizer = LawyerNormalizer()
+        self.hhi_calculator = HHICalculator()
+        self.spof_detector = SPOFDetector()
+        self.embedding_tracker = EmbeddingTracker()
+        self.drift_detector = DriftDetector()
+
+        # NEW: Load jurisdiction context
+        self.jurisdiction_context: Optional[JurisdictionalContext] = None
+        self._load_jurisdiction_context()
+
+    def _load_jurisdiction_context(self):
+        """Load the appropriate jurisdictional context based on config."""
+        if self.config.judge == "alsup":
+            self.jurisdiction_context = AlsupContext()
+        elif self.config.jurisdiction == "nd_cal":
+            self.jurisdiction_context = NDCalContext()
+        # Add more jurisdictions as needed
+
+    # ========== JURISDICTION CONTEXT ==========
+
+    def get_jurisdiction_context(self) -> Optional[Dict]:
+        """Get the current jurisdictional context summary."""
+        if not self.jurisdiction_context:
+            return None
+        return self.jurisdiction_context.get_context_summary()
+
+    def get_format_requirements(self) -> List[Dict]:
+        """Get formatting requirements for the current jurisdiction."""
+        if not self.jurisdiction_context:
+            return []
+        return [
+            {"name": r.name, "value": r.value, "mandatory": r.is_mandatory, "notes": r.notes}
+            for r in self.jurisdiction_context.get_format_requirements()
+        ]
+
+    def get_procedural_rules(self, motion_type: Optional[str] = None) -> List[Dict]:
+        """Get procedural rules for the current jurisdiction."""
+        if not self.jurisdiction_context:
+            return []
+
+        from jurisdictions.base import MotionType
+
+        if motion_type:
+            try:
+                mt = MotionType(motion_type)
+                rules = self.jurisdiction_context.get_rules_for_motion(mt)
+            except ValueError:
+                rules = self.jurisdiction_context.get_procedural_rules()
+        else:
+            rules = self.jurisdiction_context.get_procedural_rules()
+
+        return [
+            {
+                "rule_id": r.rule_id,
+                "title": r.title,
+                "description": r.description,
+                "source": r.source,
+                "mandatory": r.is_mandatory
+            }
+            for r in rules
+        ]
+
+    # ========== ENTITY NORMALIZATION ==========
+
+    def normalize_judge(self, raw_input: str) -> Dict:
+        """Normalize a judge name from various formats."""
+        result = self.judge_normalizer.normalize(raw_input)
+        return {
+            "raw_input": result.raw_input,
+            "normalized_name": result.normalized_name,
+            "source_type": result.source_type.value,
+            "confidence": result.confidence,
+            "first_name": result.first_name,
+            "last_name": result.last_name,
+            "suffix": result.suffix
+        }
+
+    def validate_lawyer(self, raw_input: str) -> Dict:
+        """Validate and normalize a lawyer entity name."""
+        result = self.lawyer_normalizer.validate(raw_input)
+        return {
+            "raw_input": result.raw_input,
+            "normalized_name": result.normalized_name,
+            "is_valid": result.is_valid,
+            "rejection_reason": result.rejection_reason.value if result.rejection_reason else None,
+            "confidence": result.confidence
+        }
+
+    # ========== CONCENTRATION ANALYSIS ==========
+
+    def analyze_concentration(
+        self,
+        entity_counts: Dict[str, int],
+        entity_type: str = "entity"
+    ) -> Dict:
+        """
+        Analyze concentration risk in entity distribution.
+
+        Returns HHI metrics and SPOF risk assessment.
+        """
+        hhi_result = self.hhi_calculator.from_counts(entity_counts)
+        spof_assessment = self.spof_detector.analyze(
+            entity_counts,
+            entity_type=entity_type,
+            domain=self.config.domain
+        )
+
+        return {
+            "hhi": hhi_result.hhi,
+            "concentration_level": hhi_result.level.value,
+            "top_entity": hhi_result.top_entity,
+            "top_share": hhi_result.top_share,
+            "equivalent_firms": hhi_result.equivalent_firms,
+            "is_healthy": hhi_result.is_healthy,
+            "spof_risks": [
+                {
+                    "entity_id": r.entity_id,
+                    "share": r.share,
+                    "risk_level": r.risk_level.value,
+                    "is_spof": r.is_spof,
+                    "recommendation": r.recommendation
+                }
+                for r in spof_assessment.spof_risks[:5]  # Top 5 risks
+            ],
+            "overall_health": spof_assessment.overall_health,
+            "has_critical_spof": spof_assessment.has_critical_spof
+        }
+
+    # ========== DRIFT DETECTION ==========
+
+    def check_pattern_drift(
+        self,
+        entity_id: str,
+        pattern_type: str,
+        current_metrics: Dict
+    ) -> Dict:
+        """
+        Check for drift in a pattern compared to baseline.
+
+        Args:
+            entity_id: ID of the entity (judge, lawyer, etc.)
+            pattern_type: Type of pattern to check
+            current_metrics: Current metric values to compare against baseline
+
+        Returns:
+            Drift analysis including severity and recommendations
+        """
+        # Generate embedding from current metrics
+        current_embedding = self.embedding_tracker.generate(
+            entity_id=entity_id,
+            pattern_type=pattern_type,
+            metrics=current_metrics,
+            sample_count=current_metrics.get("sample_count", 0)
+        )
+
+        # Check for drift
+        drift_event = self.drift_detector.detect_drift(current_embedding)
+
+        return {
+            "entity_id": drift_event.entity_id,
+            "pattern_type": drift_event.pattern_type,
+            "drift_type": drift_event.drift_type.value,
+            "severity": drift_event.severity.value,
+            "baseline_similarity": drift_event.baseline_similarity,
+            "drift_percentage": drift_event.drift_percentage,
+            "confidence_impact": drift_event.confidence_impact,
+            "requires_recalibration": drift_event.requires_recalibration,
+            "recommendation": drift_event.recommendation,
+            "top_changed_dimensions": drift_event.top_changed_dimensions
+        }
+
+    def set_pattern_baseline(
+        self,
+        entity_id: str,
+        pattern_type: str,
+        metrics: Dict,
+        sample_count: int = 0
+    ) -> bool:
+        """Set a baseline for drift comparison."""
+        embedding = self.embedding_tracker.generate(
+            entity_id=entity_id,
+            pattern_type=pattern_type,
+            metrics=metrics,
+            sample_count=sample_count
+        )
+        self.drift_detector.set_baseline(embedding)
+        return True
 
     # ========== EVENT INGESTION ==========
 

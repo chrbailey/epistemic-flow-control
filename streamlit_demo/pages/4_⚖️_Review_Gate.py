@@ -50,7 +50,7 @@ with col1:
         max_value=1.0,
         value=0.75,
         step=0.01,
-        format="%.0%%",
+        format="%d%%",
         key="sim_conf"
     )
 
@@ -231,7 +231,7 @@ with st.form("override_form"):
             max_value=1.0,
             value=0.5,
             step=0.01,
-            format="%.0%%"
+            format="%d%%"
         )
 
     with col2:

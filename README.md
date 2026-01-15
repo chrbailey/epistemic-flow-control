@@ -46,6 +46,15 @@ LLM Output (Water) → Human Gates (Channels) → Production (Destination)
 | **📈 Outcome Learning** | Every outcome improves future predictions |
 | **🔬 Wilson Score Intervals** | Proper uncertainty for small samples |
 
+### 🆕 New Features (v2.0)
+
+| Feature | Description |
+|---------|-------------|
+| **🔍 Entity Normalization** | Clean messy court data (judge names from URLs, lawyer validation) |
+| **⚠️ SPOF Detection** | Identify concentration risk using Herfindahl-Hirschman Index |
+| **📉 Pattern Drift Detection** | Monitor changes in judicial behavior with 64-dimensional embeddings |
+| **⚖️ Jurisdictional Context** | Court-specific and judge-specific guidance (N.D. Cal, Judge Alsup) |
+
 ## 🚀 Quick Start
 
 ### Installation
@@ -169,22 +178,129 @@ This isn't just another LLM wrapper. It's built on solid statistical principles:
 ```
 epistemic-flow-control/
 ├── core/
-│   ├── event_store.py      # Ground truth storage (770 lines)
-│   ├── pattern_extractor.py # LLM pattern extraction (957 lines)
-│   └── pattern_database.py  # Bayesian weights (878 lines)
+│   ├── event_store.py       # Ground truth storage
+│   ├── pattern_extractor.py # LLM pattern extraction
+│   └── pattern_database.py  # Bayesian weights
 ├── gates/
-│   └── review_gate.py      # Human review flow control (907 lines)
+│   └── review_gate.py       # Human review flow control
 ├── validation/
-│   └── calibration_engine.py # Accuracy tracking (771 lines)
+│   └── calibration_engine.py # Accuracy tracking
 ├── training/
-│   └── data_generator.py   # Training data collection (914 lines)
+│   └── data_generator.py    # Training data collection
+├── normalizers/              # 🆕 Entity normalization
+│   ├── judge_normalizer.py  # Clean judge names from URLs
+│   └── lawyer_normalizer.py # Validate lawyer entities
+├── concentration/            # 🆕 SPOF risk detection
+│   ├── hhi_calculator.py    # Herfindahl-Hirschman Index
+│   └── spof_detector.py     # Single Point of Failure analysis
+├── drift/                    # 🆕 Pattern drift detection
+│   ├── embedding_tracker.py # 64-dimensional pattern embeddings
+│   └── drift_detector.py    # Statistical drift detection
+├── jurisdictions/            # 🆕 Court-specific context
+│   ├── base.py              # Abstract jurisdiction classes
+│   ├── nd_cal.py            # N.D. California rules
+│   └── alsup.py             # Judge Alsup preferences
 ├── llm/
-│   ├── client.py           # LLM integration hub
-│   └── providers/          # Provider implementations
-├── examples/               # Compelling demo datasets
-├── streamlit_demo/         # Interactive web demo
+│   ├── client.py            # LLM integration hub
+│   └── providers/           # Provider implementations
+├── examples/                 # Compelling demo datasets
+├── streamlit_demo/           # Interactive web demo (9 pages)
 ├── tests/
-└── unified_system.py       # Main integration layer
+└── unified_system.py         # Main integration layer
+```
+
+## 🆕 New Feature Examples
+
+### Entity Normalization
+
+```python
+from normalizers import JudgeNormalizer, LawyerNormalizer
+
+# Clean messy judge names from various sources
+normalizer = JudgeNormalizer()
+
+# From CourtListener URL
+result = normalizer.normalize("https://courtlistener.com/person/john-g-roberts-jr/")
+print(result.normalized_name)  # "John G. Roberts Jr."
+
+# From PACER format
+result = normalizer.normalize("ALSUP, WILLIAM H.")
+print(result.normalized_name)  # "William H. Alsup"
+
+# Validate lawyer entities (filter out cities, organizations, pro se)
+lawyer_normalizer = LawyerNormalizer()
+result = lawyer_normalizer.validate("San Francisco")
+print(result.is_valid)  # False - geographic location
+```
+
+### Concentration Risk Detection
+
+```python
+from concentration import HHICalculator, SPOFDetector
+
+# Calculate market concentration using HHI
+calc = HHICalculator()
+result = calc.from_counts({
+    "Judge Gilstrap": 450,
+    "Judge Payne": 180,
+    "Judge Schroeder": 150,
+    "Others": 220
+})
+print(f"HHI: {result.hhi}")  # ~2800 (highly concentrated)
+print(f"Level: {result.level}")  # concentrated
+
+# Detect Single Point of Failure risks
+detector = SPOFDetector()
+assessment = detector.analyze(case_counts, entity_type="judge", domain="patent")
+if assessment.has_critical_spof:
+    print(f"SPOF Alert: {assessment.top_spof.entity_id}")
+```
+
+### Pattern Drift Detection
+
+```python
+from drift import EmbeddingTracker, DriftDetector
+
+# Track pattern changes over time
+tracker = EmbeddingTracker()
+detector = DriftDetector()
+
+# Set baseline from historical data
+baseline = tracker.generate(
+    entity_id="judge_alsup",
+    pattern_type="summary_judgment",
+    metrics={"grant_rate": 0.45, "avg_days": 120}
+)
+detector.set_baseline(baseline)
+
+# Check for drift in current pattern
+current = tracker.generate(...)
+drift_event = detector.detect_drift(current)
+
+if drift_event.requires_recalibration:
+    print(f"DRIFT ALERT: {drift_event.severity}")
+    print(drift_event.recommendation)
+```
+
+### Jurisdictional Context
+
+```python
+from unified_system import EpistemicFlowControl, SystemConfig
+
+# Configure for a specific judge
+config = SystemConfig(
+    domain="judicial",
+    jurisdiction="nd_cal",
+    judge="alsup"
+)
+system = EpistemicFlowControl(config)
+
+# Get format requirements
+requirements = system.get_format_requirements()
+# Returns: 14pt Times New Roman, 25-page limit, etc.
+
+# Get procedural rules for a motion type
+rules = system.get_procedural_rules("summary_judgment")
 ```
 
 ## 🎭 Example: The Changing Judge

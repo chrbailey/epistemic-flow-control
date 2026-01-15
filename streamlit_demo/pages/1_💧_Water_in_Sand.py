@@ -61,7 +61,7 @@ confidence = st.slider(
     max_value=1.0,
     value=0.75,
     step=0.01,
-    format="%.0%%"
+    format="%d%%"
 )
 
 stakes = st.radio(

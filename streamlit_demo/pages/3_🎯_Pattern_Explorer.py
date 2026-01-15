@@ -121,12 +121,13 @@ with col2:
     total = st.number_input("Total Cases", min_value=1, max_value=1000, value=8)
 
 with col3:
-    z_score = st.select_slider(
+    conf_level = st.selectbox(
         "Confidence Level",
-        options=[("90%", 1.645), ("95%", 1.96), ("99%", 2.576)],
-        value=("95%", 1.96),
-        format_func=lambda x: x[0]
+        options=["90%", "95%", "99%"],
+        index=1
     )
+    z_values = {"90%": 1.645, "95%": 1.96, "99%": 2.576}
+    z_score = (conf_level, z_values[conf_level])
 
 if total > 0 and successes <= total:
     import math
